@@ -41,7 +41,7 @@ This produces a pure radial wheel: evenly spaced spokes that do not track the pl
 
 ## Bullet Velocity
 Each bullet is spawned with speed `s` and angle $\alpha_{\text{final}}$. Convert degrees to radians and use cosine/sine to get velocity components:
-- $\theta = \operatorname{deg2rad}(\alpha_{\text{final}})$
+- $\theta = \text{deg2rad}(\alpha_{\text{final}})$
 - $v_x = s \cdot \cos(\theta)$
 - $v_y = s \cdot \sin(\theta)$
 
