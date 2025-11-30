@@ -28,7 +28,7 @@ export default class TShot1 extends Phaser.Scene {
         timeBetweenShots: 0,
         pauseBetweenRevolutions: 500,
         bulletsPerShot: [{ speed: 150 }, { speed: 200 }, { speed: 250 }],
-        angle: { incrementPerShot: 360 / 60, relativeToPlayer: true }
+        angle: { incrementPerShot: 360 / 60, relativeToPlayer: false }
       }
     } as const;
 

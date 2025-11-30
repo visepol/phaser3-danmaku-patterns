@@ -36,7 +36,7 @@ src/
 - Click on a menu item to start the corresponding scene.
 
 ## Scenes
-- `Remilia_NonSpell1A_TShot1`: A simple radial pattern that aims bullets relative to the player.
+- `Remilia_NonSpell1A_TShot1`: A simple radial pattern that aims bullets relative to the player. See detailed notes in `docs/Remilia_NonSpell1A_TShot1.md`.
 
 ## Adding More Scenes
 1. Create your new scene file under `src/scenes/...` and give it a unique scene key in its constructor, e.g.:
