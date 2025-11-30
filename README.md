@@ -35,9 +35,6 @@ src/
 - The game boots into `MenuScene`.
 - Click on a menu item to start the corresponding scene.
 
-## Scenes
-- `Remilia_NonSpell1A_TShot1`: A simple radial pattern that aims bullets relative to the player. See detailed notes in `docs/Remilia_NonSpell1A_TShot1.md`.
-
 ## Adding More Scenes
 1. Create your new scene file under `src/scenes/...` and give it a unique scene key in its constructor, e.g.:
    ```ts
@@ -55,7 +52,7 @@ src/
 3. Add the scene to the list in `src/scenes/MenuScene.ts` so it appears in the menu:
    ```ts
    private scenes: SceneInfo[] = [
-     { key: 'Remilia_NonSpell1A_TShot1', title: 'Remilia NonSpell1A - TShot1' },
+     { key: 'Remilia_NonSpell1A_Nonspell1', title: 'Remilia NonSpell1A - Nonspell1' },
      { key: 'My_New_Scene_Key', title: 'My New Scene' },
    ];
    ```
