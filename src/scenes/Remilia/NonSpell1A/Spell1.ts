@@ -75,9 +75,9 @@ const BOSS_SHOT_CONFIG = {
   betweenBurstsFrames: 240,
 };
 
-const PENTAGRAM_CONFIG = {
-  centerY: 220,            // posição vertical aproximada do pentagrama
-  outerRadius: 260,        // raio externo
+const HEXAGRAM_CONFIG = {
+  centerY: 220,
+  outerRadius: 260,
   thickness: 14,
   lifeMs: LASER_MESH_CONFIG.lifeMs,
   hue: LASER_MESH_CONFIG.hue,
@@ -182,7 +182,7 @@ export default class Spell1 extends Phaser.Scene {
   }
 
   async fire(stageWidth: number): Promise<void> {
-    // Mesh loop (agora desenha um pentagrama + laser vertical do player)
+    // Mesh loop (agora desenha um hexagrama + lasers do player)
     this.runLaserMeshLoop();
     // Shots
     this.runAimedRingBursts(stageWidth);
@@ -260,35 +260,28 @@ export default class Spell1 extends Phaser.Scene {
   // =========================
   // Patterns
   // =========================
-  private spawnPentagramMeshWithPlayerLaser(): void {
+  private spawnHexagramMeshWithPlayerLaser(): void {
     this.lasers.clear(true, true);
 
     const w = this.scale.width;
     const { pad } = LASER_MESH_CONFIG;
 
-    // Pontos do pentagrama (5 pontos igualmente espaçados)
     const centerX = w / 2;
-    const centerY = PENTAGRAM_CONFIG.centerY;
-    const R = PENTAGRAM_CONFIG.outerRadius;
+    const centerY = HEXAGRAM_CONFIG.centerY;
+    const R = HEXAGRAM_CONFIG.outerRadius;
 
-    const points: { x: number; y: number }[] = [];
-    // Começa no topo (-90°) e avança no sentido horário
-    for (let i = 0; i < 5; i++) {
-      const angleRad = Phaser.Math.DegToRad(-90 + i * 72);
-      points.push({ x: centerX + Math.cos(angleRad) * R, y: centerY + Math.sin(angleRad) * R });
-    }
+    const thickness = HEXAGRAM_CONFIG.thickness;
+    const lifeMs = HEXAGRAM_CONFIG.lifeMs;
+    const hue = HEXAGRAM_CONFIG.hue;
+    const alphaPct = HEXAGRAM_CONFIG.alphaPct;
 
-    // Conectar pulando 2 pontos para formar a estrela (pentagrama)
-    const thickness = PENTAGRAM_CONFIG.thickness;
-    const lifeMs = PENTAGRAM_CONFIG.lifeMs;
-    const hue = PENTAGRAM_CONFIG.hue;
-    const alphaPct = PENTAGRAM_CONFIG.alphaPct;
+    // Dois triângulos equiláteros intercalados (estrela de Davi)
+    const triA = this.getTrianglePoints(centerX, centerY, R, -90);    // topo para baixo
+    const triB = this.getTrianglePoints(centerX, centerY, R, -90 + 60); // deslocado 60°
 
-    for (let i = 0; i < 5; i++) {
-      const a = points[i];
-      const b = points[(i + 2) % 5];
-      this.createLaserSegmentExtended(a.x, a.y, b.x, b.y, thickness, lifeMs, hue, alphaPct);
-    }
+    // Desenhar ambos triângulos com segmentos estendidos
+    this.drawTriangleExtended(triA, thickness, lifeMs, hue, alphaPct);
+    this.drawTriangleExtended(triB, thickness, lifeMs, hue, alphaPct);
 
     // Laser azul vertical alinhado ao player
     const playerX = this.player.x;
@@ -325,7 +318,7 @@ export default class Spell1 extends Phaser.Scene {
     const { burstDelayFrames, betweenBurstsFrames } = LASER_MESH_CONFIG;
     while (true) {
       await this.wait(burstDelayFrames * (SEC / FPS));
-      this.spawnPentagramMeshWithPlayerLaser();
+      this.spawnHexagramMeshWithPlayerLaser();
       await this.wait(betweenBurstsFrames * (SEC / FPS));
     }
   }
@@ -556,5 +549,29 @@ export default class Spell1 extends Phaser.Scene {
     if (id === 327) return 0x66ffcc;
     if (id === 293) return 0x99ccff;
     return 0xffffff;
+  }
+
+  // Helpers para pontos e desenho de triângulos
+  private getTrianglePoints(cx: number, cy: number, r: number, startDeg: number): { x: number; y: number }[] {
+    const pts: { x: number; y: number }[] = [];
+    for (let i = 0; i < 3; i++) {
+      const ang = Phaser.Math.DegToRad(startDeg + i * 120);
+      pts.push({ x: cx + Math.cos(ang) * r, y: cy + Math.sin(ang) * r });
+    }
+    return pts;
+  }
+
+  private drawTriangleExtended(
+    pts: { x: number; y: number }[],
+    thickness: number,
+    lifeMs: number,
+    hue: number,
+    alphaPct: number
+  ): void {
+    for (let i = 0; i < 3; i++) {
+      const a = pts[i];
+      const b = pts[(i + 1) % 3];
+      this.createLaserSegmentExtended(a.x, a.y, b.x, b.y, thickness, lifeMs, hue, alphaPct);
+    }
   }
 }
