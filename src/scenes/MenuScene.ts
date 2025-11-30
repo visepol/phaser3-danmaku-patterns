@@ -4,7 +4,8 @@ type SceneInfo = { key: string; title: string };
 
 export default class MenuScene extends Phaser.Scene {
   private scenes: SceneInfo[] = [
-    { key: 'Remilia_NonSpell1A_TShot1', title: 'Remilia NonSpell1A - TShot1' },
+    { key: 'Remilia_NonSpell1A_Nonspell1', title: 'Remilia NonSpell1A - Nonspell1' },
+    { key: 'Remilia_Spell1', title: 'Remilia Spell1' },
   ];
 
   constructor() {
