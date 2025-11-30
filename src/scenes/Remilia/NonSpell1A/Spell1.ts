@@ -47,6 +47,13 @@ const PLAYER_VERTICAL_LASER_CONFIG = {
   angleDeg: 90,
 };
 
+const PLAYER_HORIZONTAL_LASER_CONFIG = {
+  thickness: 16,
+  hue: 210,        // azul
+  alphaPct: 70,
+  angleDeg: 0,     // horizontal
+};
+
 const AIM_SHOT_CONFIG = {
   waitFrames: 60,
   rings: 10,
@@ -66,6 +73,15 @@ const BOSS_SHOT_CONFIG = {
   setA: { baseSpeed: 2.5, speedStep: -0.225, angleJStep: 3, spriteId: 358, size: 10 },
   setB: { baseSpeed: 1.5, speedStep: 0.1, offsetAngle: 30, angleJStep: -12, spriteId: 327, size: 10 },
   betweenBurstsFrames: 240,
+};
+
+const PENTAGRAM_CONFIG = {
+  centerY: 220,            // posição vertical aproximada do pentagrama
+  outerRadius: 260,        // raio externo
+  thickness: 14,
+  lifeMs: LASER_MESH_CONFIG.lifeMs,
+  hue: LASER_MESH_CONFIG.hue,
+  alphaPct: LASER_MESH_CONFIG.alphaPct,
 };
 
 export default class Spell1 extends Phaser.Scene {
@@ -166,7 +182,7 @@ export default class Spell1 extends Phaser.Scene {
   }
 
   async fire(stageWidth: number): Promise<void> {
-    // Mesh loop (includes vertical player laser)
+    // Mesh loop (agora desenha um pentagrama + laser vertical do player)
     this.runLaserMeshLoop();
     // Shots
     this.runAimedRingBursts(stageWidth);
@@ -244,28 +260,37 @@ export default class Spell1 extends Phaser.Scene {
   // =========================
   // Patterns
   // =========================
-  private spawnDiagonalMeshWithPlayerLaser(): void {
-    // Clear previous mesh lasers only
+  private spawnPentagramMeshWithPlayerLaser(): void {
     this.lasers.clear(true, true);
 
     const w = this.scale.width;
-    const h = this.scale.height;
-    const { pad, step, lifeMs, thickness, hue, alphaPct, angleDegA, angleDegB } = LASER_MESH_CONFIG;
-    const len = Math.hypot(w + pad * 2, h + pad * 2); // full coverage
+    const { pad } = LASER_MESH_CONFIG;
 
-    // Diagonals starting from left edge (both directions)
-    for (let y = -pad; y <= h + pad; y += step) {
-      this.createStraightLaserA1(-pad, y, angleDegA, len, thickness, lifeMs, hue, alphaPct);
-      this.createStraightLaserA1(-pad, y, angleDegB, len, thickness, lifeMs, hue, alphaPct);
+    // Pontos do pentagrama (5 pontos igualmente espaçados)
+    const centerX = w / 2;
+    const centerY = PENTAGRAM_CONFIG.centerY;
+    const R = PENTAGRAM_CONFIG.outerRadius;
+
+    const points: { x: number; y: number }[] = [];
+    // Começa no topo (-90°) e avança no sentido horário
+    for (let i = 0; i < 5; i++) {
+      const angleRad = Phaser.Math.DegToRad(-90 + i * 72);
+      points.push({ x: centerX + Math.cos(angleRad) * R, y: centerY + Math.sin(angleRad) * R });
     }
 
-    // Additional diagonals starting from top/bottom edges to densify mesh
-    for (let x = -pad; x <= w + pad; x += step) {
-      this.createStraightLaserA1(x, -pad, angleDegA, len, thickness, lifeMs, hue, alphaPct);
-      this.createStraightLaserA1(x, h + pad, angleDegB, len, thickness, lifeMs, hue, alphaPct);
+    // Conectar pulando 2 pontos para formar a estrela (pentagrama)
+    const thickness = PENTAGRAM_CONFIG.thickness;
+    const lifeMs = PENTAGRAM_CONFIG.lifeMs;
+    const hue = PENTAGRAM_CONFIG.hue;
+    const alphaPct = PENTAGRAM_CONFIG.alphaPct;
+
+    for (let i = 0; i < 5; i++) {
+      const a = points[i];
+      const b = points[(i + 2) % 5];
+      this.createLaserSegmentExtended(a.x, a.y, b.x, b.y, thickness, lifeMs, hue, alphaPct);
     }
 
-    // Player-aligned vertical blue laser (rendered with the mesh)
+    // Laser azul vertical alinhado ao player
     const playerX = this.player.x;
     const verticalLen = this.scale.height + pad * 2;
     this.createStraightLaserA1(
@@ -279,6 +304,20 @@ export default class Spell1 extends Phaser.Scene {
       PLAYER_VERTICAL_LASER_CONFIG.alphaPct
     );
 
+    // Laser azul horizontal alinhado ao player
+    const playerY = this.player.y;
+    const horizontalLen = this.scale.width + pad * 2;
+    this.createStraightLaserA1(
+      -pad,
+      playerY,
+      PLAYER_HORIZONTAL_LASER_CONFIG.angleDeg,
+      horizontalLen,
+      PLAYER_HORIZONTAL_LASER_CONFIG.thickness,
+      lifeMs,
+      PLAYER_HORIZONTAL_LASER_CONFIG.hue,
+      PLAYER_HORIZONTAL_LASER_CONFIG.alphaPct
+    );
+
     this.playSoundStub('laser_mesh', 80);
   }
 
@@ -286,7 +325,7 @@ export default class Spell1 extends Phaser.Scene {
     const { burstDelayFrames, betweenBurstsFrames } = LASER_MESH_CONFIG;
     while (true) {
       await this.wait(burstDelayFrames * (SEC / FPS));
-      this.spawnDiagonalMeshWithPlayerLaser();
+      this.spawnPentagramMeshWithPlayerLaser();
       await this.wait(betweenBurstsFrames * (SEC / FPS));
     }
   }
@@ -366,6 +405,77 @@ export default class Spell1 extends Phaser.Scene {
     (line as any).sy = sy;
     (line as any).rad = rad;
     (line as any).len = len;
+    (line as any).thickness = thickness;
+    (line as any).life = lifeMs;
+
+    this.lasers.add(line);
+    return line;
+  }
+
+  // Novo: cria um laser segmento entre dois pontos
+  private createLaserSegment(
+    sx: number,
+    sy: number,
+    ex: number,
+    ey: number,
+    thickness: number,
+    lifeMs: number,
+    colorHue: number,
+    alphaPct: number
+  ): Phaser.GameObjects.Line {
+    const dx = ex - sx;
+    const dy = ey - sy;
+    const len = Math.hypot(dx, dy) || 1;
+    const rad = Math.atan2(dy, dx);
+
+    const color = Phaser.Display.Color.HSLToColor((colorHue % 360) / 360, 0.7, 0.5).color;
+    const line = this.add
+      .line(0, 0, sx, sy, ex, ey, color)
+      .setOrigin(0)
+      .setAlpha(alphaPct / 100);
+
+    (line as any).sx = sx;
+    (line as any).sy = sy;
+    (line as any).rad = rad;
+    (line as any).len = len;
+    (line as any).thickness = thickness;
+    (line as any).life = lifeMs;
+
+    this.lasers.add(line);
+    return line;
+  }
+
+  // Novo: cria um laser segmento entre dois pontos e estende-o além da tela
+  private createLaserSegmentExtended(
+    ax: number,
+    ay: number,
+    bx: number,
+    by: number,
+    thickness: number,
+    lifeMs: number,
+    colorHue: number,
+    alphaPct: number
+  ): Phaser.GameObjects.Line {
+    const dx = bx - ax;
+    const dy = by - ay;
+    const baseLen = Math.hypot(dx, dy) || 1;
+    const rad = Math.atan2(dy, dx);
+
+    // Extensão suficiente para sair da tela em ambas direções
+    const extend = Math.hypot(this.scale.width, this.scale.height);
+    const sx = ax - Math.cos(rad) * extend;
+    const sy = ay - Math.sin(rad) * extend;
+    const ex = bx + Math.cos(rad) * extend;
+    const ey = by + Math.sin(rad) * extend;
+
+    const color = Phaser.Display.Color.HSLToColor((colorHue % 360) / 360, 0.7, 0.5).color;
+    const line = this.add.line(0, 0, sx, sy, ex, ey, color).setOrigin(0).setAlpha(alphaPct / 100);
+
+    // Guardar dados para atualização contínua
+    (line as any).sx = sx;
+    (line as any).sy = sy;
+    (line as any).rad = rad;
+    (line as any).len = baseLen + extend * 2;
     (line as any).thickness = thickness;
     (line as any).life = lifeMs;
 
