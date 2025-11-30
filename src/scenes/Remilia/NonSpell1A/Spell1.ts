@@ -1,34 +1,112 @@
 import Phaser from 'phaser';
 
+// =========================
+// Config & Constants
+// =========================
+const FPS = 60;
+const SEC = 1000;
+
+const PLAYER_CONFIG = {
+  size: 16,
+  speedPxPerSec: 300,
+  startOffsetY: 100,
+  color: 0x00ff00,
+};
+
+const BOSS_CONFIG = {
+  size: 48,
+  startY: 60,
+  moveTarget: { xOffset: 0, y: 135 },
+  moveSpeedPxPerSec: 120,
+  color: 0xff0000,
+  life: 4000,
+};
+
+const INVINCIBILITY_FRAMES = {
+  intro: 60,
+  reducedDamageEnd: 300,
+};
+
+const LASER_MESH_CONFIG = {
+  pad: 120,
+  step: 120,
+  lifeMs: 2000,
+  thickness: 14,
+  hue: 140,
+  alphaPct: 60,
+  angleDegA: 45,  // sy
+  angleDegB: -45, // -sy
+  burstDelayFrames: 60,
+  betweenBurstsFrames: 240,
+};
+
+const PLAYER_VERTICAL_LASER_CONFIG = {
+  thickness: 16,
+  hue: 210,        // azul
+  alphaPct: 70,
+  angleDeg: 90,
+};
+
+const AIM_SHOT_CONFIG = {
+  waitFrames: 60,
+  rings: 10,
+  orbitRadius: 150,
+  perRingBullets: 22, // 0..21 inclusive = 22
+  bulletSpeed: 2,
+  spriteId: 293,
+  size: 6,
+  visualDelaySec: 10 / FPS,
+  betweenBurstsFrames: 240,
+};
+
+const BOSS_SHOT_CONFIG = {
+  waitFrames: 60,
+  rings: 11, // 0..10 inclusive = 11
+  perRingBullets: 7, // 0..6 inclusive = 7
+  setA: { baseSpeed: 2.5, speedStep: -0.225, angleJStep: 3, spriteId: 358, size: 10 },
+  setB: { baseSpeed: 1.5, speedStep: 0.1, offsetAngle: 30, angleJStep: -12, spriteId: 327, size: 10 },
+  betweenBurstsFrames: 240,
+};
+
 export default class Spell1 extends Phaser.Scene {
+  // =========================
+  // State
+  // =========================
   player!: Phaser.GameObjects.Rectangle;
   boss!: Phaser.GameObjects.Rectangle;
   bullets!: Phaser.GameObjects.Group;
   lasers!: Phaser.GameObjects.Group;
 
-  bossLife = 4000;
+  bossLife = BOSS_CONFIG.life;
   invinframe = 0;
 
   bossVX = 0;
   bossVY = 0;
 
-  // Controles e velocidade do player (opcional para testes locais)
   cursors!: Phaser.Types.Input.Keyboard.CursorKeys;
   keys!: { W: Phaser.Input.Keyboard.Key; A: Phaser.Input.Keyboard.Key; S: Phaser.Input.Keyboard.Key; D: Phaser.Input.Keyboard.Key; };
-  playerSpeed = 300;
 
   constructor() { super('Remilia_Spell1'); }
 
+  // =========================
+  // Lifecycle
+  // =========================
   create(): void {
-    const cx = this.scale.width / 2;
-    const mx = this.scale.width;
+    const centerX = this.scale.width / 2;
+    const stageWidth = this.scale.width;
 
     // Player and Boss
-    this.player = this.add.rectangle(cx, this.scale.height - 100, 16, 16, 0x00ff00).setOrigin(0.5);
-    this.boss   = this.add.rectangle(cx, 60, 48, 48, 0xff0000).setOrigin(0.5);
+    this.player = this.add
+      .rectangle(centerX, this.scale.height - PLAYER_CONFIG.startOffsetY, PLAYER_CONFIG.size, PLAYER_CONFIG.size, PLAYER_CONFIG.color)
+      .setOrigin(0.5);
 
-    // Move boss to initial dest at speed ~120px/s
-    this.moveBossTo(cx, 135, 120);
+    this.boss = this.add
+      .rectangle(centerX, BOSS_CONFIG.startY, BOSS_CONFIG.size, BOSS_CONFIG.size, BOSS_CONFIG.color)
+      .setOrigin(0.5);
+
+    // Move boss to initial destination
+    const targetX = centerX + BOSS_CONFIG.moveTarget.xOffset;
+    this.moveBossTo(targetX, BOSS_CONFIG.moveTarget.y, BOSS_CONFIG.moveSpeedPxPerSec);
 
     // Groups
     this.bullets = this.add.group();
@@ -43,75 +121,28 @@ export default class Spell1 extends Phaser.Scene {
       D: Phaser.Input.Keyboard.KeyCodes.D,
     }) as any;
 
-    // Start flow: mainTask -> movement -> fire
-    this.mainTask(mx);
+    // Flow
+    this.mainTask(stageWidth);
   }
 
-  update(time: number, delta: number): void {
-    const dt = delta / 1000;
+  update(time: number, deltaMs: number): void {
+    const dt = deltaMs / SEC;
 
-    // Player move
-    const left = this.cursors.left?.isDown || this.keys.A?.isDown;
-    const right = this.cursors.right?.isDown || this.keys.D?.isDown;
-    const up = this.cursors.up?.isDown || this.keys.W?.isDown;
-    const down = this.cursors.down?.isDown || this.keys.S?.isDown;
+    // Player movement
+    this.updatePlayerMovement(dt);
 
-    let mvx = (right ? 1 : 0) - (left ? 1 : 0);
-    let mvy = (down ? 1 : 0) - (up ? 1 : 0);
-    if (mvx !== 0 || mvy !== 0) {
-      const len = Math.hypot(mvx, mvy);
-      mvx /= len; mvy /= len;
-      this.player.x += mvx * this.playerSpeed * dt;
-      this.player.y += mvy * this.playerSpeed * dt;
-      const halfW = this.player.width / 2;
-      const halfH = this.player.height / 2;
-      this.player.x = Phaser.Math.Clamp(this.player.x, halfW, this.scale.width - halfW);
-      this.player.y = Phaser.Math.Clamp(this.player.y, halfH, this.scale.height - halfH);
-    }
-
-    // Boss integration
+    // Boss movement
     this.boss.x += this.bossVX * dt;
     this.boss.y += this.bossVY * dt;
 
     // Bullets update
-    this.bullets.getChildren().forEach((b: any) => {
-      if (!b.active) return;
-      b.x += b.vx * dt;
-      b.y += b.vy * dt;
-      if (b.delay && b.delay > 0) { b.delay -= dt; }
-      if (b.x < -80 || b.x > this.scale.width + 80 || b.y < -80 || b.y > this.scale.height + 80) {
-        b.destroy();
-      }
-    });
+    this.updateBullets(dt);
 
     // Lasers update (straight lines with lifetime)
-    this.lasers.getChildren().forEach((l: any) => {
-      if (!l.active) return;
-      l.life -= delta;
-      if (l.life <= 0) {
-        l.destroy();
-        return;
-      }
-      // keep end points based on angle and len
-      const rad = l.rad;
-      const sx = l.sx, sy = l.sy;
-      const ex = sx + Math.cos(rad) * l.len;
-      const ey = sy + Math.sin(rad) * l.len;
-      l.setTo(sx, sy, ex, ey);
-      l.setLineWidth(l.thickness);
-    });
+    this.updateLasers(deltaMs);
 
     // Damage staging
-    if (this.invinframe < 60) {
-      this.invinframe++;
-    } else if (this.invinframe === 60) {
-      // Boss cutin / BG start placeholders
-      this.playSoundStub('spell_start', 50);
-      this.invinframe++;
-    } else if (this.invinframe < 300) {
-      // reduced damage phase (no real damage pipeline here, just placeholder)
-      this.invinframe++;
-    } // at 300 -> normal damage
+    this.updateInvincibility();
 
     // End condition
     if (this.bossLife <= 0) {
@@ -121,132 +152,251 @@ export default class Spell1 extends Phaser.Scene {
     }
   }
 
-  async mainTask(mx: number): Promise<void> {
+  // =========================
+  // Orchestration
+  // =========================
+  async mainTask(stageWidth: number): Promise<void> {
     // Render boss colliders placeholder could be here
-    this.movement(mx);
+    await this.movement(stageWidth);
   }
 
-  async movement(mx: number): Promise<void> {
-    await this.wait(180 * (1000 / 60));
-    this.fire(mx);
+  async movement(stageWidth: number): Promise<void> {
+    await this.wait(180 * (SEC / FPS));
+    await this.fire(stageWidth);
   }
 
-  async fire(mx: number): Promise<void> {
-    this.diagonalMeshLoop(); // periodic diagonal mesh (inclui agora o laser azul vertical)
-    this.aimShot(mx);
-    this.bossShot();
+  async fire(stageWidth: number): Promise<void> {
+    // Mesh loop (includes vertical player laser)
+    this.runLaserMeshLoop();
+    // Shots
+    this.runAimedRingBursts(stageWidth);
+    this.runBossRadialMix();
   }
 
-  // Single-shot diagonal mesh (X grid). Clears previous lasers, lasts 2s.
-  private spawnDiagonalMesh(): void {
-    this.lasers.clear(true, true); // remove any remaining previous mesh
+  // =========================
+  // Update helpers
+  // =========================
+  private updatePlayerMovement(dt: number): void {
+    const left = this.cursors.left?.isDown || this.keys.A?.isDown;
+    const right = this.cursors.right?.isDown || this.keys.D?.isDown;
+    const up = this.cursors.up?.isDown || this.keys.W?.isDown;
+    const down = this.cursors.down?.isDown || this.keys.S?.isDown;
+
+    let mvx = (right ? 1 : 0) - (left ? 1 : 0);
+    let mvy = (down ? 1 : 0) - (up ? 1 : 0);
+
+    if (mvx === 0 && mvy === 0) return;
+
+    const len = Math.hypot(mvx, mvy) || 1;
+    mvx /= len; mvy /= len;
+
+    this.player.x += mvx * PLAYER_CONFIG.speedPxPerSec * dt;
+    this.player.y += mvy * PLAYER_CONFIG.speedPxPerSec * dt;
+
+    const halfW = this.player.width / 2;
+    const halfH = this.player.height / 2;
+    this.player.x = Phaser.Math.Clamp(this.player.x, halfW, this.scale.width - halfW);
+    this.player.y = Phaser.Math.Clamp(this.player.y, halfH, this.scale.height - halfH);
+  }
+
+  private updateBullets(dt: number): void {
+    this.bullets.getChildren().forEach((b: any) => {
+      if (!b.active) return;
+      b.x += b.vx * dt;
+      b.y += b.vy * dt;
+      if (b.delay && b.delay > 0) b.delay -= dt;
+
+      const outOfBounds =
+        b.x < -80 || b.x > this.scale.width + 80 ||
+        b.y < -80 || b.y > this.scale.height + 80;
+
+      if (outOfBounds) b.destroy();
+    });
+  }
+
+  private updateLasers(deltaMs: number): void {
+    this.lasers.getChildren().forEach((l: any) => {
+      if (!l.active) return;
+      l.life -= deltaMs;
+      if (l.life <= 0) { l.destroy(); return; }
+
+      // keep end points based on angle and len
+      const rad = l.rad;
+      const sx = l.sx, sy = l.sy;
+      const ex = sx + Math.cos(rad) * l.len;
+      const ey = sy + Math.sin(rad) * l.len;
+      l.setTo(sx, sy, ex, ey);
+      l.setLineWidth(l.thickness);
+    });
+  }
+
+  private updateInvincibility(): void {
+    if (this.invinframe < INVINCIBILITY_FRAMES.intro) {
+      this.invinframe++;
+    } else if (this.invinframe === INVINCIBILITY_FRAMES.intro) {
+      this.playSoundStub('spell_start', 50);
+      this.invinframe++;
+    } else if (this.invinframe < INVINCIBILITY_FRAMES.reducedDamageEnd) {
+      this.invinframe++;
+    }
+  }
+
+  // =========================
+  // Patterns
+  // =========================
+  private spawnDiagonalMeshWithPlayerLaser(): void {
+    // Clear previous mesh lasers only
+    this.lasers.clear(true, true);
 
     const w = this.scale.width;
     const h = this.scale.height;
-    const pad = 120;
-    const step = 120;          // spacing between diagonal lines
-    const lifeMs = 2000;       // 2s lifetime
-    const thickness = 14;
-    const hue = 140;
-    const alpha = 60;
-    const len = Math.hypot(w + pad * 2, h + pad * 2); // ensure full coverage
+    const { pad, step, lifeMs, thickness, hue, alphaPct, angleDegA, angleDegB } = LASER_MESH_CONFIG;
+    const len = Math.hypot(w + pad * 2, h + pad * 2); // full coverage
 
     // Diagonals starting from left edge (both directions)
-    const sy = 45;
     for (let y = -pad; y <= h + pad; y += step) {
-      this.createStraightLaserA1(-pad, y, sy, len, thickness, lifeMs, hue, alpha);
-      this.createStraightLaserA1(-pad, y, -sy, len, thickness, lifeMs, hue, alpha);
+      this.createStraightLaserA1(-pad, y, angleDegA, len, thickness, lifeMs, hue, alphaPct);
+      this.createStraightLaserA1(-pad, y, angleDegB, len, thickness, lifeMs, hue, alphaPct);
     }
 
     // Additional diagonals starting from top/bottom edges to densify mesh
     for (let x = -pad; x <= w + pad; x += step) {
-      this.createStraightLaserA1(x, -pad, sy, len, thickness, lifeMs, hue, alpha);
-      this.createStraightLaserA1(x, h + pad, -sy, len, thickness, lifeMs, hue, alpha);
+      this.createStraightLaserA1(x, -pad, angleDegA, len, thickness, lifeMs, hue, alphaPct);
+      this.createStraightLaserA1(x, h + pad, angleDegB, len, thickness, lifeMs, hue, alphaPct);
     }
 
-    // Laser azul vertical alinhado ao player renderizado junto com os demais
-    this.createStraightLaserA1(this.player.x, -pad, 90, this.scale.height + pad * 2, 16, lifeMs, 210, 70);
+    // Player-aligned vertical blue laser (rendered with the mesh)
+    const playerX = this.player.x;
+    const verticalLen = this.scale.height + pad * 2;
+    this.createStraightLaserA1(
+      playerX,
+      -pad,
+      PLAYER_VERTICAL_LASER_CONFIG.angleDeg,
+      verticalLen,
+      PLAYER_VERTICAL_LASER_CONFIG.thickness,
+      lifeMs,
+      PLAYER_VERTICAL_LASER_CONFIG.hue,
+      PLAYER_VERTICAL_LASER_CONFIG.alphaPct
+    );
+
     this.playSoundStub('laser_mesh', 80);
   }
 
-  // Periodic diagonal mesh respawn loop
-  private async diagonalMeshLoop(): Promise<void> {
-    const burstDelayFrames = 60;   // aligns with aimShot/bossShot initial wait
-    const betweenBurstsFrames = 240;
+  private async runLaserMeshLoop(): Promise<void> {
+    const { burstDelayFrames, betweenBurstsFrames } = LASER_MESH_CONFIG;
     while (true) {
-      await this.wait(burstDelayFrames * (1000 / 60));
-      this.spawnDiagonalMesh(); // lasers appear with new bullets
-      await this.wait(betweenBurstsFrames * (1000 / 60));
+      await this.wait(burstDelayFrames * (SEC / FPS));
+      this.spawnDiagonalMeshWithPlayerLaser();
+      await this.wait(betweenBurstsFrames * (SEC / FPS));
     }
   }
 
-  // Aimed ring bursts from an orbit point around boss
-  async aimShot(mx: number): Promise<void> {
+  private async runAimedRingBursts(stageWidth: number): Promise<void> {
+    const cfg = AIM_SHOT_CONFIG;
     while (true) {
-      let angle = this.getAngleToPlayer(this.boss.x, this.boss.y);
-      await this.wait(60 * (1000 / 60));
-      for (let i = 0; i <= 9; i++) {
-        for (let j = 0; j <= 21; j++) {
-          const ox = this.boss.x + 150 * Math.cos(Phaser.Math.DegToRad(angle));
-          const oy = this.boss.y + 150 * Math.sin(Phaser.Math.DegToRad(angle));
-          const angle2 = this.getAngleToPoint(ox, oy, this.player.x, this.player.y);
-          const shotAngle = angle2 + j * (360 / 20);
-          const shot = this.createShotA1(ox, oy, 2, shotAngle, 293, 6);
-          // delay visual placeholder
-          (shot as any).delay = 10 / 60;
-          angle += 360 / 8;
+      let angleToPlayer = this.getAngleToPlayer(this.boss.x, this.boss.y);
+      await this.wait(cfg.waitFrames * (SEC / FPS));
+
+      for (let ring = 0; ring < cfg.rings; ring++) {
+        for (let j = 0; j < cfg.perRingBullets; j++) {
+          const orbitX = this.boss.x + cfg.orbitRadius * Math.cos(Phaser.Math.DegToRad(angleToPlayer));
+          const orbitY = this.boss.y + cfg.orbitRadius * Math.sin(Phaser.Math.DegToRad(angleToPlayer));
+          const aimedAngle = this.getAngleToPoint(orbitX, orbitY, this.player.x, this.player.y);
+          const shotAngle = aimedAngle + j * (360 / (cfg.perRingBullets - 1)); // mantém o padrão original
+
+          const shot = this.createShotA1(orbitX, orbitY, cfg.bulletSpeed, shotAngle, cfg.spriteId, cfg.size);
+          (shot as any).delay = cfg.visualDelaySec;
         }
+        angleToPlayer += 360 / 8;
       }
-      await this.wait(240 * (1000 / 60));
+
+      await this.wait(cfg.betweenBurstsFrames * (SEC / FPS));
     }
   }
 
-  // Boss radial mix shot
-  async bossShot(): Promise<void> {
+  private async runBossRadialMix(): Promise<void> {
+    const cfg = BOSS_SHOT_CONFIG;
     while (true) {
-      await this.wait(60 * (1000 / 60));
+      await this.wait(cfg.waitFrames * (SEC / FPS));
       const baseAngle = this.randRange(0, 359);
-      for (let i = 0; i <= 10; i++) {
-        for (let j = 0; j <= 6; j++) {
-          this.createShotA1(this.boss.x, this.boss.y, 2.5 - j * 0.225, baseAngle + i * (360 / 10) + j * 3, 358, 10);
-          this.createShotA1(this.boss.x, this.boss.y, 1.5 + j * 0.1, baseAngle + 30 + i * (360 / 10) - j * 12, 327, 10);
+
+      for (let i = 0; i < cfg.rings; i++) {
+        for (let j = 0; j < cfg.perRingBullets; j++) {
+          // Set A
+          const speedA = cfg.setA.baseSpeed + j * cfg.setA.speedStep;
+          const angleA = baseAngle + i * (360 / (cfg.rings - 1)) + j * cfg.setA.angleJStep;
+          this.createShotA1(this.boss.x, this.boss.y, speedA, angleA, cfg.setA.spriteId, cfg.setA.size);
+
+          // Set B
+          const speedB = cfg.setB.baseSpeed + j * cfg.setB.speedStep;
+          const angleB = baseAngle + cfg.setB.offsetAngle + i * (360 / (cfg.rings - 1)) + j * cfg.setB.angleJStep;
+          this.createShotA1(this.boss.x, this.boss.y, speedB, angleB, cfg.setB.spriteId, cfg.setB.size);
         }
       }
+
       this.playSoundStub('shot2', 90);
-      await this.wait(240 * (1000 / 60));
+      await this.wait(cfg.betweenBurstsFrames * (SEC / FPS));
     }
   }
 
-  // Helpers
-
-  // Create straight laser as a line with lifetime
-  createStraightLaserA1(sx: number, sy: number, angleDeg: number, len: number, thickness: number, lifeMs: number, colorHue: number, alphaPct: number): Phaser.GameObjects.Line {
+  // =========================
+  // Factories
+  // =========================
+  createStraightLaserA1(
+    sx: number,
+    sy: number,
+    angleDeg: number,
+    len: number,
+    thickness: number,
+    lifeMs: number,
+    colorHue: number,
+    alphaPct: number
+  ): Phaser.GameObjects.Line {
     const rad = Phaser.Math.DegToRad(angleDeg);
     const ex = sx + Math.cos(rad) * len;
     const ey = sy + Math.sin(rad) * len;
+
     const color = Phaser.Display.Color.HSLToColor((colorHue % 360) / 360, 0.7, 0.5).color;
-    const line = this.add.line(0, 0, sx, sy, ex, ey, color).setOrigin(0).setAlpha(alphaPct / 100);
-    (line as any).sx = sx; (line as any).sy = sy;
+    const line = this.add
+      .line(0, 0, sx, sy, ex, ey, color)
+      .setOrigin(0)
+      .setAlpha(alphaPct / 100);
+
+    (line as any).sx = sx;
+    (line as any).sy = sy;
     (line as any).rad = rad;
     (line as any).len = len;
     (line as any).thickness = thickness;
     (line as any).life = lifeMs;
+
     this.lasers.add(line);
     return line;
   }
 
-  // Create bullet
-  createShotA1(x: number, y: number, speed: number, angleDeg: number, spriteId: number, size: number): Phaser.GameObjects.Arc {
+  createShotA1(
+    x: number,
+    y: number,
+    speedTilesPerFrame: number,
+    angleDeg: number,
+    spriteId: number,
+    size: number
+  ): Phaser.GameObjects.Arc {
     const color = this.colorForSprite(spriteId);
     const bullet = this.add.circle(x, y, size, color).setAlpha(0.95);
     const rad = Phaser.Math.DegToRad(angleDeg);
-    (bullet as any).vx = Math.cos(rad) * speed * 60;
-    (bullet as any).vy = Math.sin(rad) * speed * 60;
+
+    // bullets use speed scaled to 60fps logic
+    (bullet as any).vx = Math.cos(rad) * speedTilesPerFrame * FPS;
+    (bullet as any).vy = Math.sin(rad) * speedTilesPerFrame * FPS;
     (bullet as any).delay = 0;
+
     this.bullets.add(bullet);
     return bullet;
   }
 
+  // =========================
+  // Utils
+  // =========================
   getAngleToPlayer(x: number, y: number): number {
     return Phaser.Math.RadToDeg(Math.atan2(this.player.y - y, this.player.x - x));
   }
@@ -265,9 +415,11 @@ export default class Spell1 extends Phaser.Scene {
     const len = Math.hypot(dx, dy) || 1;
     const vx = (dx / len) * speed;
     const vy = (dy / len) * speed;
+
     this.bossVX = vx;
     this.bossVY = vy;
-    const timeMs = (len / speed) * 1000;
+
+    const timeMs = (len / speed) * SEC;
     this.time.delayedCall(timeMs, () => {
       this.boss.x = destX;
       this.boss.y = destY;
